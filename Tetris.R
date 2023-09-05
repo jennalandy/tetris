@@ -920,7 +920,7 @@ dist.A <- function(A1,A2) {
 #         alpha_IBP = IBP hyperparameter used when running tetris()
 #         S = number of studies
 # Output: point estimate of A
-function(out,alpha_IBP,S, verbose = TRUE) {
+choose.A <- function(out,alpha_IBP,S, verbose = TRUE) {
 
   n_workers =  max(parallel::detectCores() - 2, 1)
   parallel_param <- BiocParallel::MulticoreParam(
