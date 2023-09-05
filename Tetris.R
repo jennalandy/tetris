@@ -6,6 +6,8 @@ library(R.utils)
 library(matrixcalc)
 library(clue)
 library(nloptr)
+library(BiocParallel)
+library(parallel)
 
 # Sets parameters and prior hyperparameters for posterior sampling
 new_control <- function(nrun = 10000, burn = 8000, thin = 1,
@@ -918,21 +920,58 @@ dist.A <- function(A1,A2) {
 #         alpha_IBP = IBP hyperparameter used when running tetris()
 #         S = number of studies
 # Output: point estimate of A
-choose.A <- function(out,alpha_IBP,S) {
+function(out,alpha_IBP,S, verbose = TRUE) {
+
+  n_workers =  max(parallel::detectCores() - 2, 1)
+  parallel_param <- BiocParallel::MulticoreParam(
+    workers = n_workers,
+    tasks = n_workers
+  )
+
   A.chain <- out[[4]]
-  Lambda.chain <- out[[1]]
-  iters <- length(A.chain)
-  dists <- array(0,dim=c(iters,iters))
+  # isolate unique matrices
+  A.chain.string <- sapply(A.chain, function(A) {
+    paste(c(A), collapse = '')
+  })
+  A.unique.string = unique(A.chain.string)
+  A.unique.chain = lapply(A.unique.string, function(str) {which(A.chain.string == str)[1]})
+
+  # pairwise comparisons for unique A matrices
+  comps <- length(A.unique.chain)
+  unique_dists <- do.call(rbind, BiocParallel::bplapply(
+    X = 1:comps,
+    FUN = function(i) {
+      print(i)
+      dists_ij <- sapply(i:comps, function(j) {
+        dist.A(A.chain[[i]],A.chain[[j]])
+      })
+      # fill in left side with NA
+      dists_ij <- c(
+        rep(NA, i-1),
+        dists_ij
+      )
+      return(dists_ij)
+    },
+    BPPARAM = parallel_param
+  ))
+  for (i in 1:comps) {
+    for (j in 1:(i-1)) {
+      unique_dists[i,j] <- unique_dists[j,i]
+    }
+  }
+  rownames(unique_dists) = A.unique.string
+  colnames(unique_dists) = A.unique.string
+
+  # fill in full pairwise comparison matrix
+  # use unique comparisons as a lookup table
+  iters = length(A.chain)
+  dists = matrix(nrow = iters, ncol = iters)
   for (i in 1:iters) {
     for (j in i:iters) {
-      dists[i,j] <- dist.A(A.chain[[i]],A.chain[[j]])
+      dists[i,j] <- dists[j,i] <- unique_dists[A.chain.string[i], A.chain.string[j]]
     }
   }
-  for (i in 1:iters) {
-    for (j in 1:(i-1)) {
-      dists[i,j] <- dists[j,i]
-    }
-  }
+
   r <- rowSums(dists)
   thresh <- max(quantile(c(dists),0.05),S)
   r2 <- sapply(1:nrow(dists),function(x) sum(dists[x,]<=thresh))
