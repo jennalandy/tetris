@@ -941,7 +941,7 @@ choose.A <- function(out,alpha_IBP,S, verbose = TRUE) {
   unique_dists <- do.call(rbind, BiocParallel::bplapply(
     X = 1:comps,
     FUN = function(i) {
-      print(i)
+      print(paste(i, "/", comps))
       dists_ij <- sapply(i:comps, function(j) {
         dist.A(A.chain[[i]],A.chain[[j]])
       })
